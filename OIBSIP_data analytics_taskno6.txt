@@ -1,0 +1,170 @@
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import SGDClassifier
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.pipeline import Pipeline
+
+# Load the dataset
+df = pd.read_csv('/content/WineQT.csv')
+
+# Data Exploration
+print("Dataset Shape:", df.shape)
+print("\nFirst 5 rows:")
+print(df.head())
+print("\nData Information:")
+print(df.info())
+print("\nSummary Statistics:")
+print(df.describe())
+print("\nMissing Values:")
+print(df.isnull().sum())
+
+# Drop the 'Id' column as it's not relevant for prediction
+df = df.drop('Id', axis=1)
+
+# Visualize the distribution of wine quality
+plt.figure(figsize=(10, 6))
+sns.countplot(x='quality', data=df)
+plt.title('Distribution of Wine Quality Ratings')
+plt.xlabel('Quality Score')
+plt.ylabel('Count')
+plt.show()
+
+# Create a binary classification (good/bad wine) based on quality
+# We'll consider wines with quality >= 7 as good (1) and <7 as bad (0)
+df['quality_class'] = df['quality'].apply(lambda x: 1 if x >= 7 else 0)
+
+# Visualize the new binary classification
+plt.figure(figsize=(8, 5))
+sns.countplot(x='quality_class', data=df)
+plt.title('Distribution of Wine Quality Classes')
+plt.xlabel('Quality Class (0=Bad, 1=Good)')
+plt.ylabel('Count')
+plt.show()
+
+# Correlation matrix
+plt.figure(figsize=(12, 8))
+corr = df.corr()
+sns.heatmap(corr, annot=True, cmap='coolwarm', center=0)
+plt.title('Correlation Matrix of Wine Features')
+plt.show()
+
+# Pairplot of selected features
+sns.pairplot(df[['fixed acidity', 'volatile acidity', 'citric acid', 'alcohol', 'quality']],
+             hue='quality', palette='viridis')
+plt.suptitle('Pairplot of Selected Features by Quality', y=1.02)
+plt.show()
+
+# Prepare data for modeling
+X = df.drop(['quality', 'quality_class'], axis=1)
+y = df['quality_class']
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Standardize the features
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Model 1: Random Forest Classifier
+rf = RandomForestClassifier(random_state=42)
+rf_params = {
+    'n_estimators': [100, 200, 300],
+    'max_depth': [None, 5, 10],
+    'min_samples_split': [2, 5, 10]
+}
+
+rf_grid = GridSearchCV(rf, rf_params, cv=5, scoring='accuracy', n_jobs=-1)
+rf_grid.fit(X_train, y_train)
+
+print("\nRandom Forest Best Parameters:", rf_grid.best_params_)
+print("Random Forest Best Score:", rf_grid.best_score_)
+
+# Model 2: Stochastic Gradient Descent Classifier
+sgd = SGDClassifier(random_state=42)
+sgd_params = {
+    'loss': ['hinge', 'log', 'modified_huber'],
+    'alpha': [0.0001, 0.001, 0.01],
+    'penalty': ['l2', 'l1', 'elasticnet']
+}
+
+sgd_grid = GridSearchCV(sgd, sgd_params, cv=5, scoring='accuracy', n_jobs=-1)
+sgd_grid.fit(X_train_scaled, y_train)
+
+print("\nSGD Best Parameters:", sgd_grid.best_params_)
+print("SGD Best Score:", sgd_grid.best_score_)
+
+# Model 3: Support Vector Classifier
+svc = SVC(random_state=42)
+svc_params = {
+    'C': [0.1, 1, 10],
+    'kernel': ['linear', 'rbf', 'poly'],
+    'gamma': ['scale', 'auto']
+}
+
+svc_grid = GridSearchCV(svc, svc_params, cv=5, scoring='accuracy', n_jobs=-1)
+svc_grid.fit(X_train_scaled, y_train)
+
+print("\nSVC Best Parameters:", svc_grid.best_params_)
+print("SVC Best Score:", svc_grid.best_score_)
+
+# Evaluate the best models on test data
+best_rf = rf_grid.best_estimator_
+best_sgd = sgd_grid.best_estimator_
+best_svc = svc_grid.best_estimator_
+
+# Random Forest Evaluation
+rf_pred = best_rf.predict(X_test)
+print("\nRandom Forest Classification Report:")
+print(classification_report(y_test, rf_pred))
+print("Random Forest Confusion Matrix:")
+print(confusion_matrix(y_test, rf_pred))
+print("Random Forest Accuracy:", accuracy_score(y_test, rf_pred))
+
+# SGD Evaluation
+sgd_pred = best_sgd.predict(X_test_scaled)
+print("\nSGD Classification Report:")
+print(classification_report(y_test, sgd_pred))
+print("SGD Confusion Matrix:")
+print(confusion_matrix(y_test, sgd_pred))
+print("SGD Accuracy:", accuracy_score(y_test, sgd_pred))
+
+# SVC Evaluation
+svc_pred = best_svc.predict(X_test_scaled)
+print("\nSVC Classification Report:")
+print(classification_report(y_test, svc_pred))
+print("SVC Confusion Matrix:")
+print(confusion_matrix(y_test, svc_pred))
+print("SVC Accuracy:", accuracy_score(y_test, svc_pred))
+
+# Feature Importance from Random Forest
+feature_importance = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': best_rf.feature_importances_
+}).sort_values('Importance', ascending=False)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x='Importance', y='Feature', data=feature_importance)
+plt.title('Feature Importance from Random Forest')
+plt.show()
+
+# Create and fit the pipeline for the best model (SVC in this case)
+pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('classifier', best_svc)
+])
+
+# Fit the pipeline on the training data
+pipeline.fit(X_train, y_train)
+
+# Example prediction
+sample_wine = X.iloc[0:1]  # Take the first wine as an example
+prediction = pipeline.predict(sample_wine)
+print(f"\nSample Wine Prediction: {'Good' if prediction[0] == 1 else 'Bad'} Quality")
